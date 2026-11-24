@@ -1,7 +1,15 @@
-"""__NAME__领域服务：字段、状态和动作来自业务配置，数据处理骨架由基类复用。"""
+"""采集调度领域服务：字段、状态和动作来自业务配置，数据处理骨架由基类复用。"""
 from __future__ import annotations
 
+from app.intervals import (
+    REVERSED,
+    ZERO_WIDTH,
+    classify_window,
+    kind_text,
+    split_time_windows,
+)
 from app.services.base import BaseModuleService
+from app.trace_ledger import ledger
 
 
 class CrawlScheduleService(BaseModuleService):
@@ -30,3 +38,43 @@ class CrawlScheduleService(BaseModuleService):
             "watermark_end": time.strftime("%Y-%m-%d"),
         }
         return plan
+
+    def domain_split_time_windows(
+        self,
+        start: str,
+        end: str,
+        count: int,
+        *,
+        round_id: str | None = None,
+        source: str | None = None,
+    ) -> dict:
+        """按时间切分采集窗口，把无法执行的区间与可执行区间区分开。
+
+        返回 ``executable=False`` 时只报告零宽/逆序原因，不产出窗口、不登记批次；
+        正常区间才切出半开窗口，并可选择直接在批次台账里开轮。
+        """
+        kind = classify_window(start, end)
+        if kind in (ZERO_WIDTH, REVERSED):
+            return {
+                "executable": False,
+                "reason": kind,
+                "reason_text": kind_text(kind),
+                "start": str(start),
+                "end": str(end),
+                "windows": [],
+                "message": f"{kind_text(kind)}无法执行采集，不会生成空区间确认回执",
+            }
+
+        windows = split_time_windows(start, end, count)
+        opened = None
+        if round_id and source:
+            opened = ledger.open_round(round_id, source, windows)
+        return {
+            "executable": True,
+            "reason": "normal",
+            "reason_text": kind_text("normal"),
+            "start": str(start),
+            "end": str(end),
+            "windows": windows,
+            "opened_round": opened,
+        }

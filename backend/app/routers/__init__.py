@@ -3,5 +3,6 @@ from __future__ import annotations
 
 from app.routers import resource
 from app.routers import chains
+from app.routers import trace
 
-ROUTERS = [resource, chains]
+ROUTERS = [resource, chains, trace]

@@ -1,7 +1,8 @@
-"""__NAME__领域服务：字段、状态和动作来自业务配置，数据处理骨架由基类复用。"""
+"""批次追踪领域服务：空区间确认回执与真实页面分开消费、分别可回查。"""
 from __future__ import annotations
 
 from app.services.base import BaseModuleService
+from app.trace_ledger import ledger
 
 
 class BatchTrackerService(BaseModuleService):
@@ -36,3 +37,55 @@ class BatchTrackerService(BaseModuleService):
         }
         rows.append(entry)
         return entry
+
+    # ----------------------------------------------------------- 空回执 / 真实页
+    def domain_open_round(
+        self,
+        round_id: str,
+        source: str,
+        windows: list[dict],
+        *,
+        note: str = "",
+    ) -> dict:
+        """开轮或重新打开一轮采集；重新打开时历史空回执与页面全部保留。"""
+        return ledger.open_round(round_id, source, windows, note=note)
+
+    def domain_confirm_empty(
+        self,
+        round_id: str,
+        source: str,
+        start: str,
+        end: str,
+        *,
+        observed_rows: int = 0,
+        note: str = "",
+    ) -> dict:
+        """登记空区间确认回执；零宽/逆序区间会抛出 IntervalError。"""
+        return ledger.confirm_empty(
+            round_id, source, start, end,
+            observed_rows=observed_rows, note=note,
+        )
+
+    def domain_ingest_page(
+        self,
+        round_id: str,
+        source: str,
+        marker: str,
+        page_id: str,
+        *,
+        payload: dict | None = None,
+        note: str = "",
+    ) -> dict:
+        """消费一张真实页面，自动判定首条有效页/前轮更正并处理重复送达。"""
+        return ledger.ingest_page(
+            round_id, source, marker, page_id,
+            payload=payload, note=note,
+        )
+
+    def domain_reopen(self, round_id: str, source: str) -> dict:
+        """另一入口重新打开批次追踪，回查前轮空回执、已落库页面与下次任务。"""
+        return ledger.reopen_round(round_id, source)
+
+    def domain_next_task(self, round_id: str, source: str) -> dict:
+        """重新领取任务：已确认无数据区间不重取，并指出剩余缺口。"""
+        return ledger.next_task(round_id, source)
